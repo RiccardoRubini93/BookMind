@@ -1,0 +1,5 @@
+{
+  "name": "BookMind AI",
+  "description": "An intelligent PDF book analyzer that identifies chapters and provides tailored summaries using Google Gemini.",
+  "requestFramePermissions": []
+}
