@@ -19,3 +19,13 @@ export interface AnalysisConfig {
   description: string;
   icon: string;
 }
+
+export interface BookSession {
+  id: string;
+  fileName: string;
+  uploadTimestamp: number;
+  chapters: Chapter[];
+  pdfText: string;
+  pdfBase64: string;
+  isScannedMode: boolean;
+}

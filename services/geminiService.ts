@@ -198,3 +198,36 @@ export const generateSpeech = async (text: string): Promise<string> => {
     throw error;
   }
 };
+
+export const generateSlide = async (chapterTitle: string, analysisText: string): Promise<string> => {
+  try {
+    const prompt = `Create a high-quality, 16:9 infographic-style presentation slide for a book chapter titled "${chapterTitle}".
+    The visual should abstractly represent the following key themes from the chapter:
+    ${analysisText.substring(0, 500)}...
+
+    Style: Professional, minimal text, vector art or high-quality illustration, educational, clean background.`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash-image',
+      contents: { parts: [{ text: prompt }] },
+      config: {
+        imageConfig: {
+          aspectRatio: "16:9",
+        }
+      }
+    });
+
+    // Iterate to find image part
+    for (const candidate of response.candidates || []) {
+      for (const part of candidate.content?.parts || []) {
+        if (part.inlineData && part.inlineData.data) {
+          return part.inlineData.data;
+        }
+      }
+    }
+    throw new Error("No image generated");
+  } catch (error) {
+    console.error("Gemini Slide Generation Error:", error);
+    throw error;
+  }
+};
