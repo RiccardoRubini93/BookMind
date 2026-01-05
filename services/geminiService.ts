@@ -158,6 +158,7 @@ export const analyzeChapterContent = async (
 
 // Helper to clean text for TTS
 const prepareTextForSpeech = (text: string): string => {
+  // Removed substring limit to allow full text reading
   return text
     .replace(/\*\*/g, '')          // Remove bold
     .replace(/\*/g, '')            // Remove italics
@@ -165,34 +166,99 @@ const prepareTextForSpeech = (text: string): string => {
     .replace(/`/g, '')             // Remove code blocks
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Remove links but keep text
     .replace(/^\s*[-•]\s/gm, ', ') // Replace bullet points with commas for flow
-    .replace(/\n+/g, '. ')         // Replace newlines with full stops for pauses
-    .substring(0, 2000);           // Strict character limit to prevent 500 errors
+    .replace(/\n+/g, '. ');        // Replace newlines with full stops for pauses
+};
+
+// Helpers for chunking and merging audio
+const base64ToUint8Array = (base64: string): Uint8Array => {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+};
+
+const uint8ArrayToBase64 = (bytes: Uint8Array): string => {
+  let binary = '';
+  const len = bytes.byteLength;
+  // Processing in chunks to avoid call stack size exceeded for large arrays
+  const CHUNK_SIZE = 0x8000; 
+  for (let i = 0; i < len; i += CHUNK_SIZE) {
+    binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + CHUNK_SIZE)));
+  }
+  return btoa(binary);
 };
 
 export const generateSpeech = async (text: string): Promise<string> => {
   try {
-    // Truncate text if it's too long for a single TTS request (approx limit)
-    // Strip markdown to avoid reading special characters
     const safeText = prepareTextForSpeech(text);
+    
+    // Chunking logic: Split text into ~3000 char chunks to respect API limits
+    // while keeping sentences intact.
+    const MAX_CHUNK_LENGTH = 3000;
+    const chunks: string[] = [];
+    
+    if (safeText.length <= MAX_CHUNK_LENGTH) {
+      chunks.push(safeText);
+    } else {
+      // Split by sentence ending punctuation to avoid cutting words
+      const sentences = safeText.match(/[^.!?]+[.!?]+|\s*$/g) || [safeText];
+      let currentChunk = "";
+      
+      for (const sentence of sentences) {
+        if ((currentChunk.length + sentence.length) > MAX_CHUNK_LENGTH) {
+          if (currentChunk.trim()) chunks.push(currentChunk);
+          currentChunk = sentence;
+        } else {
+          currentChunk += sentence;
+        }
+      }
+      if (currentChunk.trim()) chunks.push(currentChunk);
+    }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: [{ parts: [{ text: safeText }] }],
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' },
+    // Process chunks sequentially to maintain order
+    const audioSegments: Uint8Array[] = [];
+    
+    for (const chunk of chunks) {
+      if (!chunk.trim()) continue;
+      
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: [{ parts: [{ text: chunk }] }],
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: 'Kore' },
+            },
           },
         },
-      },
-    });
+      });
 
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) {
-      throw new Error("No audio data returned");
+      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (base64Audio) {
+        audioSegments.push(base64ToUint8Array(base64Audio));
+      }
     }
-    return base64Audio;
+
+    if (audioSegments.length === 0) {
+      throw new Error("No audio generated");
+    }
+
+    // Concatenate all raw PCM segments
+    const totalLength = audioSegments.reduce((acc, curr) => acc + curr.length, 0);
+    const combinedAudio = new Uint8Array(totalLength);
+    
+    let offset = 0;
+    for (const segment of audioSegments) {
+      combinedAudio.set(segment, offset);
+      offset += segment.length;
+    }
+
+    return uint8ArrayToBase64(combinedAudio);
+
   } catch (error) {
     console.error("Gemini TTS Error:", error);
     throw error;
