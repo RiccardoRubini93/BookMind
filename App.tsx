@@ -1,13 +1,24 @@
 import React, { useState } from 'react';
-import { BookOpen, AlertTriangle, ScanEye, Library, Plus, Trash2, Check, ChevronDown } from 'lucide-react';
+import { BookOpen, AlertTriangle, ScanEye, Library, Plus, Trash2, Check, ChevronDown, LogOut } from 'lucide-react';
 import { Chapter, AnalysisType, AppStep, BookSession } from './types';
 import { extractTextFromPDF, findChapterText, convertFileToBase64 } from './services/pdfService';
 import { identifyChapters, analyzeChapterContent } from './services/geminiService';
 import { FileUpload } from './components/FileUpload';
 import { ChapterList } from './components/ChapterList';
 import { AnalysisView } from './components/AnalysisView';
+import { Login } from './components/Login';
+
+// --- SECURITY CONFIGURATION ---
+const ALLOWED_EMAILS = [
+  'riru93@gmail.com' 
+  // Add other emails here if needed, e.g., 'collaborator@example.com'
+];
 
 export default function App() {
+  // Auth State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userProfile, setUserProfile] = useState<{name: string, email: string} | null>(null);
+
   // Session Management
   const [sessions, setSessions] = useState<BookSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -26,6 +37,22 @@ export default function App() {
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  const handleLogin = (email: string, name: string) => {
+    if (ALLOWED_EMAILS.includes(email)) {
+      setIsAuthenticated(true);
+      setUserProfile({ email, name });
+      return true;
+    }
+    return false;
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setUserProfile(null);
+    // Optional: Reset state on logout
+    handleUploadNew();
+  };
 
   const handleFileSelect = async (file: File) => {
     setLoading(true);
@@ -169,6 +196,10 @@ export default function App() {
     }
   };
 
+  if (!isAuthenticated) {
+    return <Login onLogin={handleLogin} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-gray-900 font-sans pb-20">
       
@@ -180,9 +211,12 @@ export default function App() {
               <div className="bg-indigo-600 p-2 rounded-lg">
                 <BookOpen className="w-5 h-5 text-white" />
               </div>
-              <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-700 to-indigo-500">
-                BookMind
-              </span>
+              <div className="flex flex-col">
+                <span className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-700 to-indigo-500 leading-none">
+                  BookMind
+                </span>
+                {userProfile && <span className="text-[10px] text-gray-400 font-medium">{userProfile.email}</span>}
+              </div>
             </div>
             
             <div className="flex items-center gap-4">
@@ -262,6 +296,14 @@ export default function App() {
                    <span>Enhanced OCR</span>
                  </div>
                )}
+
+               <button 
+                onClick={handleLogout}
+                className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Logout"
+               >
+                 <LogOut className="w-5 h-5" />
+               </button>
             </div>
           </div>
         </div>
